@@ -1,0 +1,22 @@
+# data / outputs
+data/
+runs/
+outputs/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.pkl
+
+# user-specific configs
+configs/paths.yaml
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# notebook
+.ipynb_checkpoints/

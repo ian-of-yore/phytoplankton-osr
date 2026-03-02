@@ -1,0 +1,55 @@
+paths:
+  out_base: "/content/drive/MyDrive/SykePic/Final Test/Output"
+  model_out_dir: "/content/drive/MyDrive/SykePic/Final Test/ModelOutput"
+  sykepic_repo: "/content/syke-pic"
+
+data_prep:
+  dataset_root: "/content/data/raw/IOW_annotated_images_202601"
+  min_count: 50
+  seed: 42
+
+  known_train_frac: 0.70
+  known_val_frac: 0.15
+  known_test_frac: 0.15
+
+  unk_val_frac: 0.60
+  unk_test_frac: 0.40
+
+  img_ext: ".png"
+  use_symlinks: false
+  delete_out_base_if_exists: true
+  make_zip: false
+
+sykepic:
+  train_ini_template: "templates/sykepic_train_template.ini"
+  network_prefix: "resnet18_"
+
+runtime:
+  batch_size: 128
+  num_workers: 2
+
+openmax:
+  tailsize: 20
+  alpha: 10
+  use_euclidean: true
+  target_known_recall: 0.95
+  thresh_grid_n: 201
+
+mls:
+  target_known_recall: 0.95
+  thresh_grid_n: 501
+
+mahalanobis:
+  shrink: 0.05
+  n_sweep: 300
+  layer: "base[8]"
+  threshold_strategy: "balanced"
+
+clustering:
+  q_unknown: 0.20
+  min_cluster_size: 30
+  min_samples: 5
+  umap_neighbors: 30
+  umap_min_dist: 0.1
+  out_prefix: "openmax_gate"
+  seed: 42
