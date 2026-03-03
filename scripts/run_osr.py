@@ -13,32 +13,54 @@ from phytosr.datasets import make_loader, extract_logits
 from phytosr.eval import summarize_osr_from_cm, known_only_cm
 from phytosr.plots import plot_cm_counts, plot_cm_row_normalized, plot_known_only_paper
 
-def load_sykepic_model(model_dir: str, sykepic_repo: str):
-    if sykepic_repo not in sys.path:
-        sys.path.insert(0, sykepic_repo)
+
+def load_sykepic_model(model_dir: str, sykepic_repo: str = ""):
+    """
+    Option A friendly:
+    - If sykepic_repo is provided: import sykepic from that local path.
+    - Else: import sykepic from the installed package (pip).
+    """
+    if sykepic_repo:
+        if sykepic_repo not in sys.path:
+            sys.path.insert(0, sykepic_repo)
+
     from sykepic.compute.probability import prepare_model
+
     net, classes, img_shape, eval_transform, device = prepare_model(model_dir)
     net = net.to(device).eval()
     return net, list(classes), eval_transform, device
+
 
 def resolve_model_dir(cfg):
     # If user sets explicit model_dir, use it
     if "model_dir" in cfg["paths"] and cfg["paths"]["model_dir"]:
         return cfg["paths"]["model_dir"]
+
     # else try pointer from model_out_dir
     model_out_dir = cfg["paths"]["model_out_dir"]
     pointer = os.path.join(model_out_dir, "metadata", "latest_model_dir.txt")
     if os.path.exists(pointer):
         return open(pointer, "r", encoding="utf-8").read().strip()
+
     raise RuntimeError("MODEL_DIR not found. Set paths.model_dir or ensure latest_model_dir.txt exists.")
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--config", required=True, help="Experiment config (e.g., configs/exp.yaml)")
+    ap.add_argument("--paths", required=True, help="Machine-specific paths (e.g., configs/paths.yaml)")
     ap.add_argument("--method", required=True, choices=["openmax", "mls", "mahalanobis"])
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
+    # Load experiment config
+    with open(args.config, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    # Load machine-specific paths and override cfg["paths"]
+    with open(args.paths, "r", encoding="utf-8") as f:
+        paths_cfg = yaml.safe_load(f)
+    cfg["paths"] = paths_cfg["paths"]
+
     method = args.method
 
     out_base = cfg["paths"]["out_base"]
@@ -48,7 +70,7 @@ def main():
     unknown_name = cfg.get("data_prep", {}).get("unknown_name", "__unknown__")
 
     model_dir = resolve_model_dir(cfg)
-    sykepic_repo = cfg["paths"]["sykepic_repo"]
+    sykepic_repo = cfg["paths"].get("sykepic_repo", "")
 
     net, known_classes, eval_transform, device = load_sykepic_model(model_dir, sykepic_repo)
     K = len(known_classes)
@@ -57,9 +79,21 @@ def main():
     nw = int(cfg.get("runtime", {}).get("num_workers", 2))
 
     # loaders
-    train_ds, train_loader = make_loader(train_root, known_classes, eval_transform, batch_size=bs, num_workers=nw, include_unknown=False, unknown_name=unknown_name)
-    val_ds, val_loader = make_loader(osr_val_root, known_classes, eval_transform, batch_size=bs, num_workers=nw, include_unknown=True, unknown_name=unknown_name)
-    test_ds, test_loader = make_loader(osr_test_root, known_classes, eval_transform, batch_size=bs, num_workers=nw, include_unknown=True, unknown_name=unknown_name)
+    train_ds, train_loader = make_loader(
+        train_root, known_classes, eval_transform,
+        batch_size=bs, num_workers=nw,
+        include_unknown=False, unknown_name=unknown_name
+    )
+    val_ds, val_loader = make_loader(
+        osr_val_root, known_classes, eval_transform,
+        batch_size=bs, num_workers=nw,
+        include_unknown=True, unknown_name=unknown_name
+    )
+    test_ds, test_loader = make_loader(
+        osr_test_root, known_classes, eval_transform,
+        batch_size=bs, num_workers=nw,
+        include_unknown=True, unknown_name=unknown_name
+    )
 
     print("MODEL_DIR:", model_dir)
     print("Train classes present:", train_ds.classes_present)
@@ -80,9 +114,13 @@ def main():
 
     if method == "openmax":
         from phytosr.methods.openmax_logits import (
-            fit_mavs_weibulls, openmax_probs_logits, tune_threshold_punknown,
-            evaluate_openmax, save_openmax_artifacts
+            fit_mavs_weibulls,
+            openmax_probs_logits,
+            tune_threshold_punknown,
+            evaluate_openmax,
+            save_openmax_artifacts,
         )
+
         tailsize = int(cfg["openmax"].get("tailsize", 20))
         alpha = int(cfg["openmax"].get("alpha", 10))
         euclid = bool(cfg["openmax"].get("use_euclidean", True))
@@ -99,10 +137,14 @@ def main():
         u_val = val_p[:, -1]
         u_test = test_p[:, -1]
 
-        best_t, tune_info = tune_threshold_punknown(u_val, val_y_u, K, thresh_grid, target_known_recall=target_known_recall)
+        best_t, tune_info = tune_threshold_punknown(
+            u_val, val_y_u, K, thresh_grid, target_known_recall=target_known_recall
+        )
         print("Threshold:", best_t, "| tune:", tune_info)
 
-        pred_u, cm, rep, metrics = evaluate_openmax(test_logits, test_y_u, K, best_t, u_test, known_classes, unknown_name=unknown_name)
+        pred_u, cm, rep, metrics = evaluate_openmax(
+            test_logits, test_y_u, K, best_t, u_test, known_classes, unknown_name=unknown_name
+        )
 
         cm_path = os.path.join(model_dir, "openmax_logits_best_confusion.npy")
         np.save(cm_path, cm)
@@ -117,21 +159,28 @@ def main():
             f.write(f"Threshold: {best_t}\nTune: {tune_info}\n\n")
             f.write(rep + "\n")
             f.write("\nCM summary:\n")
-            for k,v in summ.items():
+            for k, v in summ.items():
                 f.write(f"{k}: {v}\n")
         print("Saved report:", report_path)
 
-        plot_cm_counts(cm, labels, os.path.join(plots_dir, "openmax_confusion_counts.png"),
-                      "OpenMax (logits) Confusion Matrix — Counts (OSR test)")
-        plot_cm_row_normalized(cm, labels, os.path.join(plots_dir, "openmax_confusion_row_normalized.png"),
-                               "OpenMax (logits) Confusion Matrix — Row-normalized (Recall) (OSR test)")
-        plot_known_only_paper(known_only_cm(cm, K), known_classes,
-                              os.path.join(plots_dir, "openmax_known_only_confusion_YlGnBu.png"),
-                              title="OpenMax Known-only Confusion Matrix (Counts)",
-                              vmax=None)
+        plot_cm_counts(
+            cm, labels, os.path.join(plots_dir, "openmax_confusion_counts.png"),
+            "OpenMax (logits) Confusion Matrix — Counts (OSR test)"
+        )
+        plot_cm_row_normalized(
+            cm, labels, os.path.join(plots_dir, "openmax_confusion_row_normalized.png"),
+            "OpenMax (logits) Confusion Matrix — Row-normalized (Recall) (OSR test)"
+        )
+        plot_known_only_paper(
+            known_only_cm(cm, K), known_classes,
+            os.path.join(plots_dir, "openmax_known_only_confusion_YlGnBu.png"),
+            title="OpenMax Known-only Confusion Matrix (Counts)",
+            vmax=None
+        )
 
     elif method == "mls":
         from phytosr.methods.mls import tune_threshold_mls, evaluate_mls
+
         target_known_recall = float(cfg["mls"].get("target_known_recall", 0.95))
         ngrid = int(cfg["mls"].get("thresh_grid_n", 501))
 
@@ -139,10 +188,14 @@ def main():
         # threshold grid based on distribution (unique to avoid repeats)
         thresh_grid = np.unique(np.quantile(mls_val, np.linspace(0.0, 1.0, ngrid)))
 
-        best_t, tune_info = tune_threshold_mls(mls_val, val_y_u, K, thresh_grid, target_known_recall=target_known_recall)
+        best_t, tune_info = tune_threshold_mls(
+            mls_val, val_y_u, K, thresh_grid, target_known_recall=target_known_recall
+        )
         print("Threshold:", best_t, "| tune:", tune_info)
 
-        pred_u, cm, rep, metrics = evaluate_mls(test_logits, test_y_u, K, best_t, known_classes, unknown_name=unknown_name)
+        pred_u, cm, rep, metrics = evaluate_mls(
+            test_logits, test_y_u, K, best_t, known_classes, unknown_name=unknown_name
+        )
 
         cm_path = os.path.join(model_dir, "mls_logits_best_confusion.npy")
         np.save(cm_path, cm)
@@ -156,26 +209,35 @@ def main():
             f.write(f"MLS threshold: {best_t}\nTune: {tune_info}\n\n")
             f.write(rep + "\n")
             f.write("\nCM summary:\n")
-            for k,v in summ.items():
+            for k, v in summ.items():
                 f.write(f"{k}: {v}\n")
         print("Saved report:", report_path)
 
-        plot_cm_counts(cm, labels, os.path.join(plots_dir, "mls_confusion_counts.png"),
-                      "MLS Confusion Matrix — Counts (OSR test)")
-        plot_cm_row_normalized(cm, labels, os.path.join(plots_dir, "mls_confusion_row_normalized.png"),
-                               "MLS Confusion Matrix — Row-normalized (Recall) (OSR test)")
-        plot_known_only_paper(known_only_cm(cm, K), known_classes,
-                              os.path.join(plots_dir, "mls_known_only_confusion_YlGnBu.png"),
-                              title="MLS Known-only Confusion Matrix (Counts)",
-                              vmax=None)
-
+        plot_cm_counts(
+            cm, labels, os.path.join(plots_dir, "mls_confusion_counts.png"),
+            "MLS Confusion Matrix — Counts (OSR test)"
+        )
+        plot_cm_row_normalized(
+            cm, labels, os.path.join(plots_dir, "mls_confusion_row_normalized.png"),
+            "MLS Confusion Matrix — Row-normalized (Recall) (OSR test)"
+        )
+        plot_known_only_paper(
+            known_only_cm(cm, K), known_classes,
+            os.path.join(plots_dir, "mls_known_only_confusion_YlGnBu.png"),
+            title="MLS Known-only Confusion Matrix (Counts)",
+            vmax=None
+        )
 
     elif method == "mahalanobis":
         from phytosr.methods.mahalanobis import (
-            extract_logits_and_embeddings, fit_mahalanobis,
-            score_knownness, tune_threshold_balanced,
-            compute_val_auroc, apply_threshold
+            extract_logits_and_embeddings,
+            fit_mahalanobis,
+            score_knownness,
+            tune_threshold_balanced,
+            compute_val_auroc,
+            apply_threshold,
         )
+
         shrink = float(cfg.get("mahalanobis", {}).get("shrink", 0.05))
         n_sweep = int(cfg.get("mahalanobis", {}).get("n_sweep", 300))
 
@@ -208,9 +270,10 @@ def main():
 
         # Build confusion + report
         from sklearn.metrics import classification_report, confusion_matrix
+
         target_names = list(known_classes) + [unknown_name]
         rep = classification_report(test_y2, test_pred, target_names=target_names, digits=3, zero_division=0)
-        cm = confusion_matrix(test_y2, test_pred, labels=list(range(K+1)))
+        cm = confusion_matrix(test_y2, test_pred, labels=list(range(K + 1)))
 
         cm_path = os.path.join(model_dir, "mahalanobis_logits_best_confusion.npy")
         np.save(cm_path, cm)
@@ -226,21 +289,28 @@ def main():
             f.write(f"Val AUROC (unknown vs known) using (-score): {auroc}\n\n")
             f.write(rep + "\n")
             f.write("\nCM summary:\n")
-            for k,v in summ.items():
+            for k, v in summ.items():
                 f.write(f"{k}: {v}\n")
         print("Saved report:", report_path)
 
         # Plots
-        plot_cm_counts(cm, labels, os.path.join(plots_dir, "mahalanobis_confusion_counts.png"),
-                      "Mahalanobis Confusion Matrix — Counts (OSR test)")
-        plot_cm_row_normalized(cm, labels, os.path.join(plots_dir, "mahalanobis_confusion_row_normalized.png"),
-                               "Mahalanobis Confusion Matrix — Row-normalized (Recall) (OSR test)")
-        plot_known_only_paper(known_only_cm(cm, K), known_classes,
-                              os.path.join(plots_dir, "mahalanobis_known_only_confusion_YlGnBu.png"),
-                              title="Mahalanobis Known-only Confusion Matrix (Counts)",
-                              vmax=None)
+        plot_cm_counts(
+            cm, labels, os.path.join(plots_dir, "mahalanobis_confusion_counts.png"),
+            "Mahalanobis Confusion Matrix — Counts (OSR test)"
+        )
+        plot_cm_row_normalized(
+            cm, labels, os.path.join(plots_dir, "mahalanobis_confusion_row_normalized.png"),
+            "Mahalanobis Confusion Matrix — Row-normalized (Recall) (OSR test)"
+        )
+        plot_known_only_paper(
+            known_only_cm(cm, K), known_classes,
+            os.path.join(plots_dir, "mahalanobis_known_only_confusion_YlGnBu.png"),
+            title="Mahalanobis Known-only Confusion Matrix (Counts)",
+            vmax=None
+        )
 
     print("\n✅ Done:", method)
+
 
 if __name__ == "__main__":
     main()

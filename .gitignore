@@ -1,0 +1,30 @@
+# Data & outputs
+output/
+iowData/
+runs/
+data/
+
+# Models
+*.pth
+*.pt
+*.ckpt
+*.npy
+*.npz
+
+# Local configs
+configs/paths.yaml
+configs/configspaths.yaml
+
+# Virtual env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+*.egg-info/
+build/
+dist/

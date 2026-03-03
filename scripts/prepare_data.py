@@ -14,17 +14,27 @@ from phytosr.data_prep import SplitConfig, prepare_splits
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True, help="Path to YAML config")
+    ap.add_argument("--config", required=True, help="Experiment config (e.g., configs/exp.yaml)")
+    ap.add_argument("--paths", required=True, help="Machine-specific paths (e.g., configs/paths.yaml)")
     args = ap.parse_args()
 
+    # Load experiment config
     with open(args.config, "r", encoding="utf-8") as f:
         cfg_y = yaml.safe_load(f)
 
+    # Load paths config and override cfg_y["paths"]
+    with open(args.paths, "r", encoding="utf-8") as f:
+        paths_cfg = yaml.safe_load(f)
+    cfg_y["paths"] = paths_cfg["paths"]
+
     d = cfg_y["data_prep"]
+
+    # Paths (machine-specific)
     out_base = cfg_y["paths"]["out_base"]
+    dataset_root = cfg_y["paths"]["dataset_root"]
 
     cfg = SplitConfig(
-        dataset_root=d["dataset_root"],
+        dataset_root=dataset_root,
         out_base=out_base,
         min_count=int(d.get("min_count", 50)),
         seed=int(d.get("seed", 42)),

@@ -4,7 +4,6 @@ import os
 import sys
 import torch
 
-
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(REPO_ROOT, "src")
 if SRC_DIR not in sys.path:
@@ -15,11 +14,18 @@ from phytosr.sykepic_engine import render_ini, run_training, find_latest_model
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--config", required=True, help="Experiment config (e.g., configs/exp.yaml)")
+    ap.add_argument("--paths", required=True, help="Machine-specific paths (e.g., configs/paths.yaml)")
     args = ap.parse_args()
 
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
+
+    with open(args.paths, "r") as f:
+        paths_cfg = yaml.safe_load(f)
+
+    # Override/attach machine-specific paths
+    cfg["paths"] = paths_cfg["paths"]
 
     out_base = cfg["paths"]["out_base"]
     model_out_dir = cfg["paths"]["model_out_dir"]

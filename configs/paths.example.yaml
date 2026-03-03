@@ -1,5 +1,6 @@
 paths:
-  data_root: /ABS/PATH/TO/DATA
-  runs_root: /ABS/PATH/TO/RUNS
-  model_dir: ""         # optional override
-  sykepic_repo: ""      # leave empty for pip-installed sykepic
+  dataset_root: /ABS/PATH/TO/RAW_DATASET
+  out_base: /ABS/PATH/TO/OUTPUT_SPLITS
+  model_out_dir: /ABS/PATH/TO/MODEL_OUTPUTS
+  model_dir: ""
+  sykepic_repo: ""

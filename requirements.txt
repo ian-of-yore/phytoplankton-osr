@@ -1,0 +1,15 @@
+numpy
+scipy
+pandas
+pyyaml
+tqdm
+matplotlib
+scikit-learn
+opencv-python
+torch==2.2.2
+torchvision==0.17.2
+#ump-learn
+#hdbscan
+
+# Upstream SYKEPIC pinned to a commit
+git+https://github.com/sykefi/syke-pic@bccae3bf20d476b444c7082dce77499f3397ac82

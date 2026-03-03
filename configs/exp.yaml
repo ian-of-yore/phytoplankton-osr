@@ -1,10 +1,4 @@
-paths:
-  out_base: "/content/drive/MyDrive/SykePic/Final Test/Output"
-  model_out_dir: "/content/drive/MyDrive/SykePic/Final Test/ModelOutput"
-  sykepic_repo: "/content/syke-pic"
-
 data_prep:
-  dataset_root: "/content/data/raw/IOW_annotated_images_202601"
   min_count: 50
   seed: 42
 
@@ -19,6 +13,9 @@ data_prep:
   use_symlinks: false
   delete_out_base_if_exists: true
   make_zip: false
+
+  # Optional label used in OSR loaders/reports
+  unknown_name: "__unknown__"
 
 sykepic:
   train_ini_template: "templates/sykepic_train_template.ini"
