@@ -1,15 +1,11 @@
-numpy
+numpy<2
 scipy
 pandas
 pyyaml
 tqdm
 matplotlib
 scikit-learn
-opencv-python
-torch==2.2.2
-torchvision==0.17.2
-#ump-learn
-#hdbscan
+opencv-python-headless==4.8.1.78
 
-# Upstream SYKEPIC pinned to a commit
+# SYKE-PIC pinned to tested commit
 git+https://github.com/sykefi/syke-pic@bccae3bf20d476b444c7082dce77499f3397ac82
