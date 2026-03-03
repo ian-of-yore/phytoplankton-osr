@@ -3,8 +3,7 @@
 import os
 import sys
 import pickle
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Tuple, List
 
 import cv2
 import numpy as np
@@ -30,11 +29,20 @@ class CV2FolderOSR(Dataset):
         ClassA/*.png
         ClassB/*.png
         __unknown__/*.png    (optional)
+
     Labels:
       known classes => 0..K-1 based on SykePic class order
       __unknown__   => K
     """
-    def __init__(self, root: str, known_class_order: List[str], transform, include_unknown: bool, unknown_name: str):
+
+    def __init__(
+        self,
+        root: str,
+        known_class_order: List[str],
+        transform,
+        include_unknown: bool,
+        unknown_name: str,
+    ):
         self.root = root
         self.transform = transform
         self.known_order = list(known_class_order)
@@ -129,7 +137,7 @@ def fit_mavs_weibulls(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Returns:
-      mavs: (K, K)   mean logit vector per class
+      mavs: (K, K)      mean logit vector per class
       weibulls: (K, 2)  (shape, scale) per class
     """
     mavs = np.zeros((K, K), dtype=np.float64)
@@ -146,7 +154,7 @@ def fit_mavs_weibulls(
         if euclidean:
             d = np.linalg.norm(Xc - mavs[c], axis=1)
         else:
-            # cosine distance in logit space (your original logic)
+            # cosine distance in logit space
             Xn = Xc / (np.linalg.norm(Xc, axis=1, keepdims=True) + 1e-12)
             mn = mavs[c] / (np.linalg.norm(mavs[c]) + 1e-12)
             d = 1.0 - (Xn @ mn)
@@ -181,7 +189,6 @@ def openmax_probs_logits(
         revised = x.copy()
         unknown_mass = 0.0
 
-        # for cosine distance, normalize once
         if not euclidean:
             xn = x / (np.linalg.norm(x) + 1e-12)
 
@@ -219,7 +226,7 @@ def tune_threshold_punknown_constrained(
     fallback_t: float,
 ) -> Tuple[float, Dict[str, Any]]:
     """
-    Your original "constraint" tuning:
+    Constrained tuning:
       - grid t in [0,1]
       - choose t maximizing unknown F1, subject to known_recall >= target
       - if none, fallback to fallback_t
@@ -242,15 +249,15 @@ def tune_threshold_punknown_constrained(
 
     if best is None:
         return float(fallback_t), {"note": "fallback", "target_known_recall": float(target_known_recall)}
-    else:
-        unk_f1_val, best_t, known_rec_val, unk_rec_val = best
-        return float(best_t), {
-            "note": "constraint",
-            "target_known_recall": float(target_known_recall),
-            "unk_f1_val": float(unk_f1_val),
-            "known_recall_val": float(known_rec_val),
-            "unk_recall_val": float(unk_rec_val),
-        }
+
+    unk_f1_val, best_t, known_rec_val, unk_rec_val = best
+    return float(best_t), {
+        "note": "constraint",
+        "target_known_recall": float(target_known_recall),
+        "unk_f1_val": float(unk_f1_val),
+        "known_recall_val": float(known_rec_val),
+        "unk_recall_val": float(unk_rec_val),
+    }
 
 
 def tune_threshold_punknown_balanced(
@@ -261,7 +268,7 @@ def tune_threshold_punknown_balanced(
     grid_n: int,
 ) -> Tuple[float, Dict[str, Any]]:
     """
-    Balanced objective used in your sweep notebook:
+    Balanced objective:
       score(t) = 0.5*(known_acc(t) + unk_rec(t))
     """
     THRESH_GRID = np.linspace(0.0, 1.0, int(grid_n))
@@ -283,7 +290,13 @@ def tune_threshold_punknown_balanced(
             best = (float(score), float(t), float(known_acc), float(unk_rec))
 
     score, best_t, known_acc, unk_rec = best
-    return float(best_t), {"note": "balanced", "val_score": score, "val_known_acc": known_acc, "val_unk_rec": unk_rec, "grid_n": int(grid_n)}
+    return float(best_t), {
+        "note": "balanced",
+        "val_score": float(score),
+        "val_known_acc": float(known_acc),
+        "val_unk_rec": float(unk_rec),
+        "grid_n": int(grid_n),
+    }
 
 
 # -------------------------
@@ -298,6 +311,10 @@ def evaluate_openmax(
     known_classes: List[str],
     unknown_name: str = "__unknown__",
 ):
+    """
+    Returns (compatible with scripts/run_osr.py):
+      pred_u, cm, rep, metrics
+    """
     pred_unk_test = (u_test >= best_t)
     pred_known_base = np.argmax(test_logits, axis=1)
     pred_u = pred_known_base.copy()
@@ -308,19 +325,60 @@ def evaluate_openmax(
     cm = confusion_matrix(test_y_u, pred_u, labels=list(range(K + 1)))
 
     mask_known_test = (test_y_u != K)
-    known_acc_th = accuracy_score(test_y_u[mask_known_test], pred_u[mask_known_test]) if mask_known_test.any() else float("nan")
+    known_acc_th = (
+        accuracy_score(test_y_u[mask_known_test], pred_u[mask_known_test])
+        if mask_known_test.any()
+        else float("nan")
+    )
     unknown_recall = (pred_u[test_y_u == K] == K).mean() if (test_y_u == K).any() else float("nan")
 
-    return {
-        "rep": rep,
-        "cm": cm,
+    metrics = {
         "known_acc_th": float(known_acc_th),
         "unknown_recall": float(unknown_recall),
         "best_t": float(best_t),
     }
+    return pred_u, cm, rep, metrics
 
 
-def save_openmax_artifacts(model_dir: str, mavs: np.ndarray, weibulls: np.ndarray, tailsize: int, alpha: int, euclidean: bool):
+def evaluate_openmax_dict(
+    test_logits: np.ndarray,
+    test_y_u: np.ndarray,
+    K: int,
+    best_t: float,
+    u_test: np.ndarray,
+    known_classes: List[str],
+    unknown_name: str = "__unknown__",
+) -> Dict[str, Any]:
+    """
+    Dict-returning evaluator for the internal run_openmax_logits() entrypoint.
+    """
+    pred_u, cm, rep, metrics = evaluate_openmax(
+        test_logits=test_logits,
+        test_y_u=test_y_u,
+        K=K,
+        best_t=best_t,
+        u_test=u_test,
+        known_classes=known_classes,
+        unknown_name=unknown_name,
+    )
+    return {
+        "pred": pred_u,
+        "cm": cm,
+        "rep": rep,
+        "known_acc_th": metrics["known_acc_th"],
+        "unknown_recall": metrics["unknown_recall"],
+        "best_t": metrics["best_t"],
+    }
+
+
+def save_openmax_artifacts(
+    model_dir: str,
+    mavs: np.ndarray,
+    weibulls: np.ndarray,
+    tailsize: int,
+    alpha: int,
+    euclidean: bool,
+):
     out_mavs = os.path.join(model_dir, "openmax_mavs_logits_best.npy")
     out_wb = os.path.join(model_dir, "openmax_weibull_logits_best.pkl")
     np.save(out_mavs, mavs)
@@ -339,7 +397,7 @@ def save_openmax_artifacts(model_dir: str, mavs: np.ndarray, weibulls: np.ndarra
 
 
 # -------------------------
-# MAIN ENTRYPOINT
+# MAIN ENTRYPOINT (optional)
 # -------------------------
 def run_openmax_logits(
     model_dir: str,
@@ -351,18 +409,18 @@ def run_openmax_logits(
     batch_size: int = 128,
     num_workers: int = 2,
     # mode:
-    #   "constrained" -> your original constrained tuning on [0,1] grid with fallback=0.5
-    #   "balanced"    -> your sweep-style balanced tuning
+    #   "constrained" -> constrained tuning on [0,1] grid with fallback
+    #   "balanced"    -> balanced tuning
     mode: str = "constrained",
-    # OpenMax params (original):
+    # OpenMax params:
     tailsize: int = 20,
     alpha: int = 10,
     use_euclidean: bool = True,
-    # constrained tuning params (original):
+    # constrained tuning params:
     target_known_recall: float = 0.95,
     thresh_grid_n: int = 201,
     fallback_t: float = 0.5,
-    # balanced tuning params (original-ish):
+    # balanced tuning params:
     balanced_grid_n: int = 401,
     # saving
     save_confusion_name: str = "openmax_logits_best_confusion.npy",
@@ -371,13 +429,9 @@ def run_openmax_logits(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    Rebuilds your original OpenMax logits pipeline in a reusable function.
-
-    Returns dict with keys:
-      best_t, tune_info, known_acc_th, unknown_recall, paths to saved cm/report, etc.
+    Standalone runner (kept for completeness). scripts/run_osr.py is the preferred interface.
     """
-    # Load model via SykePic
-    if sykepic_repo not in sys.path:
+    if sykepic_repo and sykepic_repo not in sys.path:
         sys.path.insert(0, sykepic_repo)
 
     from sykepic.compute.probability import prepare_model
@@ -389,21 +443,32 @@ def run_openmax_logits(
     known_classes = list(classes)
     K = len(known_classes)
 
-    # Load data
     train_ds, train_loader = _make_loader(
-        train_root, known_classes, eval_transform,
-        include_unknown=False, unknown_name=unknown_name,
-        batch_size=batch_size, num_workers=num_workers,
+        train_root,
+        known_classes,
+        eval_transform,
+        include_unknown=False,
+        unknown_name=unknown_name,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
     val_ds, val_loader = _make_loader(
-        osr_val_root, known_classes, eval_transform,
-        include_unknown=True, unknown_name=unknown_name,
-        batch_size=batch_size, num_workers=num_workers,
+        osr_val_root,
+        known_classes,
+        eval_transform,
+        include_unknown=True,
+        unknown_name=unknown_name,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
     test_ds, test_loader = _make_loader(
-        osr_test_root, known_classes, eval_transform,
-        include_unknown=True, unknown_name=unknown_name,
-        batch_size=batch_size, num_workers=num_workers,
+        osr_test_root,
+        known_classes,
+        eval_transform,
+        include_unknown=True,
+        unknown_name=unknown_name,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
 
     if verbose:
@@ -420,7 +485,6 @@ def run_openmax_logits(
     if train_logits.shape[1] != K:
         raise RuntimeError(f"Logit dimension mismatch: train_logits.shape[1]={train_logits.shape[1]} but K={K}")
 
-    # Fit OpenMax
     mavs, weibulls = fit_mavs_weibulls(
         train_logits=train_logits,
         train_y=train_y,
@@ -429,30 +493,19 @@ def run_openmax_logits(
         euclidean=bool(use_euclidean),
     )
 
-    # Compute P_unknown
     val_p = openmax_probs_logits(val_logits, mavs, weibulls, alpha=int(alpha), euclidean=bool(use_euclidean))
     test_p = openmax_probs_logits(test_logits, mavs, weibulls, alpha=int(alpha), euclidean=bool(use_euclidean))
     u_val = val_p[:, -1]
     u_test = test_p[:, -1]
 
-    # Diagnostics
     val_is_unknown = (val_y_u == K)
     if verbose:
         if val_is_unknown.any():
             print("AUROC (unknown vs known) using P_unknown:", roc_auc_score(val_is_unknown.astype(int), u_val))
         print("P_unknown quantiles (ALL):", np.quantile(u_val, [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]))
 
-    # Tune threshold
-    if mode.lower().startswith("constr"):
-        best_t, tune_info = tune_threshold_punknown_constrained(
-            u_val=u_val,
-            val_y_u=val_y_u,
-            K=K,
-            target_known_recall=float(target_known_recall),
-            thresh_grid_n=int(thresh_grid_n),
-            fallback_t=float(fallback_t),
-        )
-    elif mode.lower().startswith("bal"):
+    mode_l = str(mode).lower()
+    if mode_l.startswith("bal"):
         best_t, tune_info = tune_threshold_punknown_balanced(
             val_logits=val_logits,
             u_val=u_val,
@@ -461,10 +514,16 @@ def run_openmax_logits(
             grid_n=int(balanced_grid_n),
         )
     else:
-        raise ValueError(f"Unknown mode='{mode}'. Use 'constrained' or 'balanced'.")
+        best_t, tune_info = tune_threshold_punknown_constrained(
+            u_val=u_val,
+            val_y_u=val_y_u,
+            K=K,
+            target_known_recall=float(target_known_recall),
+            thresh_grid_n=int(thresh_grid_n),
+            fallback_t=float(fallback_t),
+        )
 
-    # Evaluate on OSR-test (decoupled)
-    eval_out = evaluate_openmax(
+    eval_out = evaluate_openmax_dict(
         test_logits=test_logits,
         test_y_u=test_y_u,
         K=K,
@@ -474,15 +533,13 @@ def run_openmax_logits(
         unknown_name=unknown_name,
     )
 
-    # Save
     os.makedirs(model_dir, exist_ok=True)
     cm_path = os.path.join(model_dir, save_confusion_name)
     report_path = os.path.join(model_dir, save_report_name)
 
     np.save(cm_path, eval_out["cm"])
-
-    with open(report_path, "w") as f:
-        f.write(f"OpenMax (logits)\n")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("OpenMax (logits)\n")
         f.write(f"MODEL_DIR={model_dir}\n")
         f.write(f"TRAIN_ROOT={train_root}\nOSR_VAL_ROOT={osr_val_root}\nOSR_TEST_ROOT={osr_test_root}\n\n")
         f.write(f"params: tailsize={tailsize}, alpha={alpha}, euclidean={use_euclidean}\n")
@@ -494,7 +551,9 @@ def run_openmax_logits(
 
     artifact_paths = {}
     if save_best_artifacts:
-        out_mavs, out_wb = save_openmax_artifacts(model_dir, mavs, weibulls, tailsize=int(tailsize), alpha=int(alpha), euclidean=bool(use_euclidean))
+        out_mavs, out_wb = save_openmax_artifacts(
+            model_dir, mavs, weibulls, tailsize=int(tailsize), alpha=int(alpha), euclidean=bool(use_euclidean)
+        )
         artifact_paths = {"mavs": out_mavs, "weibull": out_wb}
 
     info = {

@@ -26,11 +26,13 @@ runtime:
   num_workers: 2
 
 openmax:
+  mode: balanced
+  # mode: constrained
+  fixed_threshold: 0.9
+  balanced_grid_n: 401
   tailsize: 20
-  alpha: 10
-  use_euclidean: true
-  target_known_recall: 0.95
-  thresh_grid_n: 201
+  alpha: 3
+  use_euclidean: false
 
 mls:
   target_known_recall: 0.95

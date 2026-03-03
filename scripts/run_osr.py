@@ -1,3 +1,5 @@
+# scripts/run_osr.py
+
 import argparse
 import os
 import sys
@@ -116,18 +118,30 @@ def main():
         from phytosr.methods.openmax_logits import (
             fit_mavs_weibulls,
             openmax_probs_logits,
-            tune_threshold_punknown,
+            tune_threshold_punknown_constrained,
+            tune_threshold_punknown_balanced,
             evaluate_openmax,
             save_openmax_artifacts,
         )
 
-        tailsize = int(cfg["openmax"].get("tailsize", 20))
-        alpha = int(cfg["openmax"].get("alpha", 10))
-        euclid = bool(cfg["openmax"].get("use_euclidean", True))
-        target_known_recall = float(cfg["openmax"].get("target_known_recall", 0.95))
-        ngrid = int(cfg["openmax"].get("thresh_grid_n", 201))
-        thresh_grid = np.linspace(0.0, 1.0, ngrid)
+        # -------------------------
+        # params
+        # -------------------------
+        om_cfg = cfg.get("openmax", {}) or {}
 
+        tailsize = int(om_cfg.get("tailsize", 20))
+        alpha = int(om_cfg.get("alpha", 10))
+        euclid = bool(om_cfg.get("use_euclidean", True))
+
+        mode = str(om_cfg.get("mode", "constrained")).lower()
+        target_known_recall = float(om_cfg.get("target_known_recall", 0.95))
+
+        # optional: freeze threshold to match notebook exactly (no drift)
+        fixed_t = om_cfg.get("fixed_threshold", None)
+
+        # -------------------------
+        # fit + probs
+        # -------------------------
         mavs, weibulls = fit_mavs_weibulls(train_logits, train_y, K, tailsize=tailsize, euclidean=euclid)
         mav_path, wb_path = save_openmax_artifacts(model_dir, mavs, weibulls, tailsize, alpha, euclid)
         print("Saved OpenMax artifacts:", mav_path, wb_path)
@@ -137,11 +151,37 @@ def main():
         u_val = val_p[:, -1]
         u_test = test_p[:, -1]
 
-        best_t, tune_info = tune_threshold_punknown(
-            u_val, val_y_u, K, thresh_grid, target_known_recall=target_known_recall
-        )
+        # -------------------------
+        # choose threshold
+        # -------------------------
+        if fixed_t is not None:
+            best_t = float(fixed_t)
+            tune_info = {"note": "fixed_threshold", "best_t": best_t}
+        else:
+            if mode.startswith("bal"):
+                best_t, tune_info = tune_threshold_punknown_balanced(
+                    val_logits=val_logits,
+                    u_val=u_val,
+                    val_y_u=val_y_u,
+                    K=K,
+                    grid_n=int(om_cfg.get("balanced_grid_n", 401)),
+                )
+            else:
+                best_t, tune_info = tune_threshold_punknown_constrained(
+                    u_val=u_val,
+                    val_y_u=val_y_u,
+                    K=K,
+                    target_known_recall=float(target_known_recall),
+                    thresh_grid_n=int(om_cfg.get("thresh_grid_n", 201)),
+                    fallback_t=float(om_cfg.get("fallback_t", 0.5)),
+                )
+
+        print("OpenMax mode:", mode, "| fixed_threshold:", fixed_t)
         print("Threshold:", best_t, "| tune:", tune_info)
 
+        # -------------------------
+        # eval
+        # -------------------------
         pred_u, cm, rep, metrics = evaluate_openmax(
             test_logits, test_y_u, K, best_t, u_test, known_classes, unknown_name=unknown_name
         )
@@ -156,8 +196,13 @@ def main():
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(f"MODEL_DIR: {model_dir}\n")
             f.write(f"OpenMax logits: tailsize={tailsize}, alpha={alpha}, euclidean={euclid}\n")
+            f.write(f"Mode: {mode}\n")
+            f.write(f"Fixed threshold: {fixed_t}\n")
             f.write(f"Threshold: {best_t}\nTune: {tune_info}\n\n")
             f.write(rep + "\n")
+            f.write("\nMetrics:\n")
+            for k, v in metrics.items():
+                f.write(f"{k}: {v}\n")
             f.write("\nCM summary:\n")
             for k, v in summ.items():
                 f.write(f"{k}: {v}\n")

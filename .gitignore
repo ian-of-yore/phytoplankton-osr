@@ -17,6 +17,7 @@ configs/configspaths.yaml
 
 # Virtual env
 .venv/
+.venv_cluster/
 
 # Python
 __pycache__/
