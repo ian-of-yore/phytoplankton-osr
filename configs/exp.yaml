@@ -45,10 +45,11 @@ mahalanobis:
   threshold_strategy: "balanced"
 
 clustering:
-  q_unknown: 0.20
-  min_cluster_size: 30
-  min_samples: 5
-  umap_neighbors: 30
+  # also the alpha value in the openmax can be changed while running clustering. Ex: alpha = 3/5/10
+  q_unknown: 0.25
+  min_cluster_size: 5
+  min_samples: 3
+  umap_neighbors: 20
   umap_min_dist: 0.1
   out_prefix: "openmax_gate"
   seed: 42
