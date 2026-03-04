@@ -199,6 +199,19 @@ Each method writes evaluation results to the corresponding trained model directo
 
 ---
 
+## OSR Comparison
+
+A consolidated evaluation table can be generated from the saved confusion matrices:
+
+```bash
+python scripts/osr_compare.py --model-dir output/models/<experiment_name>
+```
+For example:
+```bash
+python scripts/osr_compare.py --model-dir output/models/resnet18_2
+```
+
+---
 # Reproducibility
 
 Results are reproducible under:
