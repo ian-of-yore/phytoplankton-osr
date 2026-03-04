@@ -212,6 +212,18 @@ python scripts/osr_compare.py --model-dir output/models/resnet18_2
 ```
 
 ---
+
+## Clustering (Colab)
+
+The OpenMax-gated clustering stage is implemented in:
+
+`phytoplankton-osr/notebooks/Clustering_OpenMax.ipynb`
+
+The notebook loads a trained SYKE-PIC model, computes OpenMax unknownness, selects top-q unknown candidates, clusters them using HDBSCAN, and exports CSV + UMAP visualizations.
+
+Clustering dependencies (`umap-learn`, `hdbscan`) are installed inside the notebook to avoid platform-specific issues.
+
+---
 # Reproducibility
 
 Results are reproducible under:
