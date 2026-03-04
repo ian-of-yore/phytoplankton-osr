@@ -7,8 +7,6 @@ import pandas as pd
 import cv2
 import matplotlib.pyplot as plt
 
-import hdbscan
-import umap
 
 from .openmax_gate import load_openmax_logits_artifacts, openmax_probs_logits_saved
 
@@ -21,13 +19,18 @@ def l2_normalize(X):
 
 def select_topq_tiesafe(scores, q_unknown):
     """
-    Tie-safe selection (same behavior as your original run):
-      - choose k = ceil(q*N)
+    Tie-safe selection:
+      - choose k = ceil(q*N), clamped to [1, N] when N>0
       - tau_eff = score at kth position
       - select all with score >= tau_eff (includes ties)
     """
     N = len(scores)
+    if N == 0:
+        return np.zeros((0,), dtype=bool), float("nan"), 0
+
     k = int(np.ceil(q_unknown * N))
+    k = max(1, min(k, N))
+
     idx_sorted = np.argsort(scores)[::-1]
     top_idx = idx_sorted[:k]
     tau_eff = float(scores[top_idx[-1]])
@@ -50,6 +53,15 @@ def cluster_unknowns_from_openmax_logits_gate(
     out_prefix="openmax_gate",
     seed=42,
 ):
+    try:
+        import hdbscan
+        import umap
+    except ImportError as e:
+        raise ImportError(
+            "Clustering dependencies missing. Install in Colab with: pip install umap-learn hdbscan"
+        ) from e
+
+
     if out_root is None:
         out_root = os.path.join(model_dir, "clusters")
     os.makedirs(out_root, exist_ok=True)
@@ -67,6 +79,12 @@ def cluster_unknowns_from_openmax_logits_gate(
     sel_paths = np.array(test_paths)[sel_mask].copy()
     sel_scores = punk_all[sel_mask].copy()
 
+    if X.shape[0] < 2:
+        raise RuntimeError(
+            f"Too few samples selected for clustering (n_selected={X.shape[0]}). "
+            f"Increase q_unknown (currently {q_unknown}) or check OpenMax artifacts."
+        )
+
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=int(min_cluster_size),
         min_samples=int(min_samples),
@@ -77,8 +95,10 @@ def cluster_unknowns_from_openmax_logits_gate(
     n_clusters = len(set(clabels)) - (1 if -1 in clabels else 0)
     noise_frac = float(np.mean(clabels == -1))
 
+    umap_neighbors_eff = min(int(umap_neighbors), max(2, X.shape[0] - 1))
+
     reducer = umap.UMAP(
-        n_neighbors=int(umap_neighbors),
+        n_neighbors=int(umap_neighbors_eff),
         min_dist=float(umap_min_dist),
         metric="cosine",
         random_state=int(seed)
