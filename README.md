@@ -1,6 +1,6 @@
 # Phytoplankton Open-Set Recognition (OSR)
 
-This repository implements an open-set recognition (OSR) pipeline for phytoplankton image classification using a SYKE-PIC backbone and three OSR methods:
+This repository implements an open-set recognition (OSR) pipeline for phytoplankton image classification using a [SYKE-PIC](https://github.com/sykefi/syke-pic) backbone and three OSR methods:
 
 - **Maximum Logit Score (MLS)**
 - **OpenMax**
@@ -11,7 +11,8 @@ The workflow consists of:
 1. Environment setup  
 2. Dataset preparation  
 3. Closed-set training  
-4. Open-set evaluation  
+4. Open-set evaluation
+5. OpenMax-gated clustering
 
 ---
 
